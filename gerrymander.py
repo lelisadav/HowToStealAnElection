@@ -22,16 +22,11 @@ class State:
 		self._position = centroid(self.points())
 		return self._position
 
-	def points(self):
-		if(self._points != None):
-			return self._points
-		from scipy.spatial import ConvexHull
-		import numpy
-		allUniquePoints = reduce(set.union,(p.points() for p in self.iterPrecincts()),set())
-		pointsArr = numpy.array([p for p in allUniquePoints])
-		hull = ConvexHull(pointsArr)
-		self._points = tuple(tuple(point) for point in hull.points[hull.vertices])
-		return self._points
+	def splitLine(self,ratio,angle):
+		return splitLine(ratio,self.iterPrecincts(),angle);
+
+	def buildGraph(self):
+		pass
 
 def centroid(points):
 	def adjPoints():
@@ -49,7 +44,6 @@ def centroid(points):
 			for (p, pNext)
 			in adjPoints())
 	return (sx/(6.0*signedArea),sy/(6.0*signedArea))
-
 
 class Precinct:
 
@@ -92,16 +86,28 @@ def lineSort(precincts,angle):
 		return cos*pos[0] + sin*pos[1]
 	return sorted(precincts,lambda x, y: cmp(dot(x.position()),dot(y.position())))
 
+def plotPoints(points,color='b'):
+	from matplotlib import pyplot
+	for p in points:
+		pyplot.scatter(p[0],p[1],c=color)
+
+def plotPrecincts(ps,color='b'):
+	from matplotlib import pyplot
+	for p in ps:
+		pos = p.position()
+		pyplot.scatter(pos[0],pos[1],c=color)
+
 # returns partitions that are splitted by a split line at the specified angle
 def splitLine(ratio,precincts,angle):
 	from itertools import groupby
 	from bisect    import bisect
 	from math      import pi
-	precincts = lineSort(precincts,angle+pi)  # sort precincts by position along the line
+	precincts = lineSort(precincts,angle+pi/2)  # sort precincts by position along the line
 	pops = cumulativePop(precincts)           # get cumulative population for precincts, following the line
 	goalAmt = ratio*pops[-1]
 	i = bisect(pops,goalAmt)                  # get index that partitions precincts by population by the ratio
 	i = min((abs(pops[i]-goalAmt),i),(abs(pops[i-1]-goalAmt),i-1))[1] if i > 0 else i
+	return (precincts[0:i+1],precincts[i+1::])
 
 if __name__ == "__main__":
 	import sys
