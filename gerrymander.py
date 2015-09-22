@@ -4,6 +4,8 @@ class State:
 	def __init__(self,path):
 		from shapefile import Reader
 		self.r = Reader(path)
+		self._points = None
+		self._position = None
 
 	def iterPrecincts(self):
 		return (Precinct(self,shapeRec) for shapeRec in self.r.iterShapeRecords())
@@ -14,50 +16,65 @@ class State:
 	def bbox(self):
 		return self.r.bbox
 
+	def position(self):
+		if(self._position != None):
+			return self._position
+		self._position = centroid(self.points())
+		return self._position
+
+	def points(self):
+		if(self._points != None):
+			return self._points
+		from scipy.spatial import ConvexHull
+		import numpy
+		allUniquePoints = reduce(set.union,(p.points() for p in self.iterPrecincts()),set())
+		pointsArr = numpy.array([p for p in allUniquePoints])
+		hull = ConvexHull(pointsArr)
+		self._points = tuple(tuple(point) for point in hull.points[hull.vertices])
+		return self._points
+
+def centroid(points):
+	def adjPoints():
+		return ((points[x-1],points[x])
+			for x
+			in xrange(0,len(points)))
+
+	signedArea = 0.5*sum(p[0]*pNext[1] - pNext[0]*p[1]
+				for (p, pNext)
+				in adjPoints())
+	sx = sum((p[0] + pNext[0])*(p[0]*pNext[1] - pNext[0]*p[1])
+			for (p, pNext)
+			in adjPoints())
+	sy = sum((p[1] + pNext[1])*(p[0]*pNext[1] - pNext[0]*p[1])
+			for (p, pNext)
+			in adjPoints())
+	return (sx/(6.0*signedArea),sy/(6.0*signedArea))
+
+
 class Precinct:
 
 	def __init__(self,state,shapeRecord):
-		self.shapeRecord = shapeRecord
+		self._shapeRecord = shapeRecord
 		self.state = state
 		self._adjacent = None
-
-		def adjPoints(self):
-			points = self.points()
-			return ((points[x-1],points[x])
-					for x
-					in xrange(0,len(points)))
-
-		def signedArea(self):
-			return 0.5*sum(p[0]*pNext[1] - pNext[0]*p[1]
-					for (p, pNext)
-					in adjPoints(self))
-
-		def centroid(self):
-			a = signedArea(self)
-			sx = sum((p[0] + pNext[0])*(p[0]*pNext[1] - pNext[0]*p[1])
-					for (p, pNext)
-					in adjPoints(self))
-			sy = sum((p[1] + pNext[1])*(p[0]*pNext[1] - pNext[0]*p[1])
-					for (p, pNext)
-					in adjPoints(self))
-			return (sx/(6.0*a),sy/(6.0*a))
-
-		self._position = centroid(self)
+		self._shapeRecord.shape.points = tuple(tuple(point) for point in self._shapeRecord.shape.points)
+		self._position = centroid(self.points())
 
 	def position(self):
 		return self._position
 
 	def points(self):
-		return tuple(self.shapeRecord.shape.points)
+		return tuple(self._shapeRecord.shape.points)
 
 	def population(self):
-		return self.shapeRecord.record[20]
+		return self._shapeRecord.record[20]
 
 	def adjacent(self):
 		if(self._adjacent != None):
 			return self._adjacent
 		points = set(self.points())
-		return (p for p in self.state.iterPrecincts() if ((p.position() != self.position()) and points.intersection(p.points()) > 0))
+		self._adjacent = (p for p in self.state.iterPrecincts() if ((p.position() != self.position()) and len(points.intersection(p.points())) > 0))
+		return self._adjacent
 
 # creates a list where the element at index i is equal to the sum
 # of all of the precincts at index 0-i
