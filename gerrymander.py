@@ -1,31 +1,29 @@
 #! /usr/bin/env python2
 
 from matplotlib import pyplot
+from shapely.geometry import Polygon
+from shapely.geometry import MultiPolygon
 
-class State:
+class State(MultiPolygon):
 
 	def __init__(self,path):
 		from shapefile import Reader
-		self.r = Reader(path)
-		self._points = None
-		self._position = None
-		self.r.bbox = tuple(self.r.bbox)
-		self._precincts = tuple(Precinct(self,shapeRec) for shapeRec in self.r.iterShapeRecords())
+		r = Reader(path)
+		self._precincts = tuple(Precinct(self,shapeRec) for shapeRec in r.iterShapeRecords())
+		MultiPolygon.__init__(self,self._precincts)
+		self._count = 0
+
+	def position(self):
+		return self.centroid.coords[0]
+
+	def points(self):
+		return self.boundary.coords
 
 	def iterPrecincts(self):
 		return iter(self._precincts)
 
 	def precincts(self):
 		return self._precincts
-
-	def bbox(self):
-		return self.r.bbox
-
-	def position(self):
-		if(self._position != None):
-			return self._position
-		self._position = centroid(self.points())
-		return self._position
 
 	def splitLine(self,ratio,angle):
 		return splitLine(ratio,self.iterPrecincts(),angle);
@@ -34,6 +32,7 @@ class State:
 	# their adjacent precincts when using Precinct.adjacent() on a lot of precincts.
 	def buildGraph(self):
 
+		self._count = 0
 		# get corner points from bounding box
 		def points(bbox):
 			minX, minY, maxX, maxY = bbox
@@ -57,24 +56,26 @@ class State:
 
 		# brute force builds the graph by checking every pair in the list of precincts
 		def baseBuild(precincts):
+			self._count = self._count + 1
 			for i in xrange(len(precincts)):
 				precinct = precincts[i]
 				points = set(precinct.points())
 				for j in xrange(i+1,len(precincts)):
 					oPrecinct = precincts[j]
-					if(not intersects(precinct.bbox(),oPrecinct.bbox())):
+					if(not intersects(precinct.bounds,oPrecinct.bounds)):
 						continue
 					if(points.isdisjoint(oPrecinct.points())):
 						continue
 					oPrecinct._adjacent.append(precinct)
 					precinct._adjacent.append(oPrecinct)
+			print(self._count)
 
 		# builds the graph by checking for adjacency between precincts paired together from seperate lists
 		def mergeBuild(ps1,ps2):
 			for p1 in ps1:
 				points = set(p1.points())
 				for p2 in ps2:
-					if(not intersects(p1.bbox(),p2.bbox())):
+					if(not intersects(p1.bounds,p2.bounds)):
 						continue
 					if(points.isdisjoint(p2.points())):
 						continue
@@ -100,7 +101,7 @@ class State:
 			botMid   = []
 			mid      = []
 			for precinct in precincts:
-				minX, minY, maxX, maxY = precinct.bbox()
+				minX, minY, maxX, maxY = precinct.bounds
 				if(minX <= splitX):
 					if(maxX >= splitX):
 						if(minY <= splitY):
@@ -124,7 +125,7 @@ class State:
 						botRight.append(precinct)
 				else:
 					topRight.append(precinct)
-			
+
 			recursiveBuild((minX,minY,splitX,splitY),botLeft)
 			recursiveBuild((splitX,splitY,maxX,maxY),topRight)
 			recursiveBuild((minX,splitY,splitX,maxY),topLeft)
@@ -148,48 +149,26 @@ class State:
 		precincts = self.precincts()
 		for p in precincts:
 			p._adjacent = []
-		recursiveBuild(self.bbox(),precincts)
+		recursiveBuild(self.bounds,precincts)
 		for p in precincts:
 			p._adjacent = tuple(p._adjacent)
 
-def centroid(points):
-	def adjPoints():
-		return ((points[x-1],points[x])
-			for x
-			in xrange(0,len(points)))
-
-	signedArea = 0.5*sum(p[0]*pNext[1] - pNext[0]*p[1]
-				for (p, pNext)
-				in adjPoints())
-	sx = sum((p[0] + pNext[0])*(p[0]*pNext[1] - pNext[0]*p[1])
-			for (p, pNext)
-			in adjPoints())
-	sy = sum((p[1] + pNext[1])*(p[0]*pNext[1] - pNext[0]*p[1])
-			for (p, pNext)
-			in adjPoints())
-	return (sx/(6.0*signedArea),sy/(6.0*signedArea))
-
-class Precinct:
+class Precinct(Polygon):
 
 	def __init__(self,state,shapeRecord):
-		self._shapeRecord = shapeRecord
+		self._record = shapeRecord.record
 		self.state = state
 		self._adjacent = None
-		self._shapeRecord.shape.points = tuple(tuple(point) for point in self._shapeRecord.shape.points)
-		self._shapeRecord.shape.bbox = tuple(self._shapeRecord.shape.bbox)
-		self._position = centroid(self.points())
-
-	def position(self):
-		return self._position
-
-	def points(self):
-		return tuple(self._shapeRecord.shape.points)
+		Polygon.__init__(self,shapeRecord.shape.points)
 
 	def population(self):
-		return self._shapeRecord.record[20]
+		return self._record[20]
 
-	def bbox(self):
-		return self._shapeRecord.shape.bbox
+	def position(self):
+		return self.centroid.coords[0];
+
+	def points(self):
+		return self.boundary.coords
 
 	def adjacent(self):
 		if(self._adjacent != None):
