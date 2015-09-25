@@ -11,7 +11,6 @@ class State(MultiPolygon):
 		r = Reader(path)
 		self._precincts = tuple(Precinct(self,shapeRec) for shapeRec in r.iterShapeRecords())
 		MultiPolygon.__init__(self,self._precincts)
-		self._count = 0
 
 	def position(self):
 		return self.centroid.coords[0]
@@ -32,7 +31,6 @@ class State(MultiPolygon):
 	# their adjacent precincts when using Precinct.adjacent() on a lot of precincts.
 	def buildGraph(self,capacity=16):
 
-		self._count = 0
 		# get corner points from bounding box
 		def points(bbox):
 			minX, minY, maxX, maxY = bbox
@@ -56,7 +54,6 @@ class State(MultiPolygon):
 
 		# brute force builds the graph by checking every pair in the list of precincts
 		def baseBuild(precincts):
-			self._count = self._count + 1
 			for i in xrange(len(precincts)):
 				precinct = precincts[i]
 				for j in xrange(i+1,len(precincts)):
@@ -67,7 +64,6 @@ class State(MultiPolygon):
 						continue
 					oPrecinct[3].append(precinct[2])
 					precinct[3].append(oPrecinct[2])
-			print(self._count)
 
 		# builds the graph by checking for adjacency between precincts paired together from seperate lists
 		def mergeBuild(ps1,ps2):
