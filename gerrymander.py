@@ -30,7 +30,7 @@ class State(MultiPolygon):
 
 	# calculates every precinct's adjacent precincts, much faster than relying on each precinct to lazily evaluate
 	# their adjacent precincts when using Precinct.adjacent() on a lot of precincts.
-	def buildGraph(self):
+	def buildGraph(self,capacity=16):
 
 		self._count = 0
 		# get corner points from bounding box
@@ -59,33 +59,61 @@ class State(MultiPolygon):
 			self._count = self._count + 1
 			for i in xrange(len(precincts)):
 				precinct = precincts[i]
-				points = set(precinct.points())
 				for j in xrange(i+1,len(precincts)):
 					oPrecinct = precincts[j]
-					if(not intersects(precinct.bounds,oPrecinct.bounds)):
+					if(not intersects(precinct[0],oPrecinct[0])):
 						continue
-					if(points.isdisjoint(oPrecinct.points())):
+					if(precinct[1].isdisjoint(oPrecinct[1])):
 						continue
-					oPrecinct._adjacent.append(precinct)
-					precinct._adjacent.append(oPrecinct)
+					oPrecinct[3].append(precinct[2])
+					precinct[3].append(oPrecinct[2])
 			print(self._count)
 
 		# builds the graph by checking for adjacency between precincts paired together from seperate lists
 		def mergeBuild(ps1,ps2):
 			for p1 in ps1:
-				points = set(p1.points())
 				for p2 in ps2:
-					if(not intersects(p1.bounds,p2.bounds)):
+					if(not intersects(p1[0],p2[0])):
 						continue
-					if(points.isdisjoint(p2.points())):
+					if(p1[1].isdisjoint(p2[1])):
 						continue
-					p1._adjacent.append(p2)
-					p2._adjacent.append(p1)
+					p1[3].append(p2[2])
+					p2[3].append(p1[2])
+
+		def vertBuild(ps):
+			def vertSort(x,y):
+				return cmp(x[0][1],y[0][1])
+			ps.sort(vertSort)
+			for lo in xrange(len(ps)-1):
+				loP = ps[lo]
+				for hi in xrange(lo+1,len(ps)):
+					hiP = ps[hi]
+					if(hiP[0][1] > loP[0][3]):
+						break
+					if(hiP[1].isdisjoint(loP[1])):
+						continue
+					loP[3].append(hiP[2])
+					hiP[3].append(loP[2])
+
+		def horizBuild(ps):
+			def horizSort(x,y):
+				return cmp(x[0][0],y[0][0])
+			ps.sort(horizSort)
+			for left in xrange(len(ps)-1):
+				leftP = ps[left]
+				for right in xrange(left+1,len(ps)):
+					rightP = ps[right]
+					if(rightP[0][0] > leftP[0][2]):
+						break
+					if(leftP[1].isdisjoint(rightP[1])):
+						continue
+					leftP[3].append(rightP[2])
+					rightP[3].append(leftP[2])
 
 		# builds the graph by recursively splitting lists of precincts into shorter lists based on their
 		# bounding boxes. Once the list of precincts is small enough, baseBuild is used to build the graph
 		def recursiveBuild(bbox,precincts):
-			if(len(precincts) <= 16):
+			if(len(precincts) <= capacity):
 				baseBuild(precincts)
 				return
 			minX, minY, maxX, maxY = bbox
@@ -101,7 +129,7 @@ class State(MultiPolygon):
 			botMid   = []
 			mid      = []
 			for precinct in precincts:
-				minX, minY, maxX, maxY = precinct.bounds
+				minX, minY, maxX, maxY = precinct[0]
 				if(minX <= splitX):
 					if(maxX >= splitX):
 						if(minY <= splitY):
@@ -130,10 +158,12 @@ class State(MultiPolygon):
 			recursiveBuild((splitX,splitY,maxX,maxY),topRight)
 			recursiveBuild((minX,splitY,splitX,maxY),topLeft)
 			recursiveBuild((splitX,minY,maxX,splitY),botRight)
-			for ps in (topMid,botMid,midLeft,midRight,mid):
-				baseBuild(ps)
+			for ps in (topMid,botMid,mid):
+				vertBuild(ps)
+			for ps in (midLeft,midRight):
+				horizBuild(ps)
 			for ps in (topMid,botMid,midLeft,midRight):
-				mergeBuild(ps,mid)
+				mergeBuild(mid,ps)
 			for vertMid in (topMid,botMid):
 				for horizMid in (midLeft,midRight):
 					mergeBuild(vertMid,horizMid)
@@ -146,12 +176,10 @@ class State(MultiPolygon):
 			for ps in (midRight,mid,topMid):
 				mergeBuild(ps,topRight)
 
-		precincts = self.precincts()
-		for p in precincts:
-			p._adjacent = []
-		recursiveBuild(self.bounds,precincts)
-		for p in precincts:
-			p._adjacent = tuple(p._adjacent)
+		tups = [(p.bounds,set(p.points()),p,[]) for p in self.precincts()]
+		recursiveBuild(self.bounds,tups)
+		for p in tups:
+			p[2]._adjacent = tuple(p[3])
 
 class Precinct(Polygon):
 
