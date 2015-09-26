@@ -3,6 +3,8 @@
 from matplotlib import pyplot
 from shapely.geometry import Polygon
 from shapely.geometry import MultiPolygon
+from shapely.geometry import LineString
+import math
 
 class State(MultiPolygon):
 
@@ -25,10 +27,11 @@ class State(MultiPolygon):
 		return self._precincts
 
 	def splitLine(self,ratio,angle):
-		return splitLine(ratio,self.iterPrecincts(),angle);
+		return SplitLine(self._precincts,ratio,angle,self.buffer(0)) # we may want to store the polygon version of texas
 
-	# calculates every precinct's adjacent precincts, much faster than relying on each precinct to lazily evaluate
-	# their adjacent precincts when using Precinct.adjacent() on a lot of precincts.
+	# calculates every precinct's adjacent precincts, much faster than relying on
+	# each precinct to lazily evaluate their adjacent precincts when using
+	# Precinct.adjacent() on a lot of precincts.
 	def buildGraph(self,capacity=16):
 
 		# get corner points from bounding box
@@ -65,7 +68,8 @@ class State(MultiPolygon):
 					oPrecinct[3].append(precinct[2])
 					precinct[3].append(oPrecinct[2])
 
-		# builds the graph by checking for adjacency between precincts paired together from seperate lists
+		# builds the graph by checking for adjacency between precincts paired together
+		# from seperate lists
 		def mergeBuild(ps1,ps2):
 			for p1 in ps1:
 				for p2 in ps2:
@@ -106,8 +110,9 @@ class State(MultiPolygon):
 					leftP[3].append(rightP[2])
 					rightP[3].append(leftP[2])
 
-		# builds the graph by recursively splitting lists of precincts into shorter lists based on their
-		# bounding boxes. Once the list of precincts is small enough, baseBuild is used to build the graph
+		# builds the graph by recursively splitting lists of precincts into shorter lists based
+		# on their bounding boxes. Once the list of precincts is small enough, baseBuild is used
+		# to build the graph
 		def recursiveBuild(bbox,precincts):
 			if(len(precincts) <= capacity):
 				baseBuild(precincts)
@@ -183,7 +188,7 @@ class Precinct(Polygon):
 		self._record = shapeRecord.record
 		self.state = state
 		self._adjacent = None
-		Polygon.__init__(self,shapeRecord.shape.points)
+		Polygon.__init__(self,shapeRecord.shape.points + shapeRecord.shape.points[-1:])
 
 	def population(self):
 		return self._record[20]
@@ -201,28 +206,64 @@ class Precinct(Polygon):
 		self._adjacent = tuple(p for p in self.state.iterPrecincts() if ((p.position() != self.position()) and len(points.intersection(p.points())) > 0))
 		return self._adjacent
 
-# creates a list where the element at index i is equal to the sum
-# of all of the precincts at index 0 to i
-def cumulativePop(precincts):
-	retval = [0]*len(precincts)
-	for n in xrange(0,len(precincts)):
-		retval[n] = retval[n-1] + precincts[n].population()
-	return retval
+def distance(p1,p2):
+	return math.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
 
-# sorts precincts by position with respect to the specified angle
-def lineSort(precincts,angle,mutate=False):
-	import math
-	sin = math.sin(angle)
-	cos = math.cos(angle)
-	def dot(pos):
-		return cos*pos[0] + sin*pos[1]
-	def comp(x,y):
-		return cmp(dot(x.position()),dot(y.position()))
-	if(mutate):
-		precincts.sort(comp)
-	else:
-		precincts = sorted(precincts,comp)
-	return precincts
+class SplitLine(LineString):
+
+	def __init__(self,precincts,ratio,angle,polygon = None):
+
+		# creates a list where the element at index i is equal to the sum
+		# of all of the precincts at index 0 to i
+		def cumulativePop(precincts):
+			retval = [0]*len(precincts)
+			for n in xrange(0,len(precincts)):
+				retval[n] = retval[n-1] + precincts[n].population()
+			return retval
+
+		# sorts precincts by position with respect to the specified angle
+		def lineSortPoints(points,angle):
+			sin = math.sin(angle)
+			cos = math.cos(angle)
+			def dot(pos):
+				return cos*pos[0] + sin*pos[1]
+			def comp(x,y):
+				return cmp(dot(x),dot(y))
+			precincts.sort(comp)
+
+		# sorts precincts by position with respect to the specified angle
+		def lineSortPrecincts(precincts,angle):
+			sin = math.sin(angle)
+			cos = math.cos(angle)
+			def dot(pos):
+				return cos*pos[0] + sin*pos[1]
+			def comp(x,y):
+				return cmp(dot(x.position()),dot(y.position()))
+			precincts = sorted(precincts,comp)
+			return precincts
+
+		from bisect    import bisect
+		precincts = lineSortPrecincts(precincts,angle+math.pi/2)
+		pops = cumulativePop(precincts)           # get cumulative population for precincts, following the line
+		goalAmt = ratio*pops[-1]
+		i = bisect(pops,goalAmt)                  # get index that partitions precincts by population by the ratio
+		i = min((abs(pops[i]-goalAmt),i),(abs(pops[i-1]-goalAmt),i-1))[1] if i > 0 else i
+		self.leftPart = tuple(precincts[0:i+1])
+		self.rightPart = tuple(precincts[i+1:])
+		self.ratio = ratio
+		point = precincts[i].position()
+		if(polygon == None):
+			polygon = MultiPolygon(precincts).buffer(0)
+		minX, minY, maxX, maxY = polygon.bounds
+		length = math.sqrt((maxX - minX)**2 + (maxY - minY)**2)
+		sin = math.sin(angle)*length
+		cos = math.cos(angle)*length
+		p1 = (point[0]+cos,point[1]+sin)
+		p2 = (point[0]-cos,point[1]-sin)
+		line = LineString((p1,p2))
+		intersections = polygon.boundary.intersection(line)
+		points = tuple(point.coords[0] for point in intersections.geoms)
+		LineString.__init__(self,points)
 
 def plotPoints(points,color='b'):
 	for p in points:
@@ -237,18 +278,6 @@ def plotPrecinctsPoints(ps,color='b'):
 	for p in ps:
 		for point in p.points():
 			pyplot.scatter(point[0],point[1],c=color)
-
-# returns partitions that are splitted by a split line at the specified angle and ratio
-def splitLine(ratio,precincts,angle,mutate=False):
-	from bisect    import bisect
-	from math      import pi
-	precincts = lineSort(precincts,angle+pi/2,mutate)
-	pops = cumulativePop(precincts)           # get cumulative population for precincts, following the line
-	goalAmt = ratio*pops[-1]
-	i = bisect(pops,goalAmt)                  # get index that partitions precincts by population by the ratio
-	i = min((abs(pops[i]-goalAmt),i),(abs(pops[i-1]-goalAmt),i-1))[1] if i > 0 else i
-	return (precincts[0:i+1], precincts[i+1::])
-
 
 if __name__ == "__main__":
 	import sys
