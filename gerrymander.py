@@ -12,7 +12,24 @@ class State(MultiPolygon):
 		from shapefile import Reader
 		r = Reader(path)
 		self._precincts = tuple(Precinct(self,shapeRec) for shapeRec in r.iterShapeRecords())
+		self._polygon = None
 		MultiPolygon.__init__(self,self._precincts)
+
+	def asPolygon(self):
+		if(self._polygon == None):
+			poly = self.buffer(0)
+			if(poly.type != 'Polygon'):
+				raise ValueError('state has invalid shape')
+			self._polygon = poly
+		return self._polygon
+
+	def plot(self,fig=pyplot,color='b'):
+		poly = self.asPolygon()
+		xs,ys = poly.exterior.xy
+		fig.plot(xs,ys,color=color)
+
+	def population(self):
+		return sum(p.population() for p in self._precincts)
 
 	def position(self):
 		return self.centroid.coords[0]
@@ -22,6 +39,9 @@ class State(MultiPolygon):
 
 	def precincts(self):
 		return self._precincts
+
+	def shortestSplitLine(self,districts,sample):
+		return shortestSplitLine(self.precincts(),districts,self.asPolygon(),sample)
 
 	def splitLine(self,ratio,angle):
 		return SplitLine(self._precincts,ratio,angle,self.buffer(0)) # we may want to store the polygon version of texas
@@ -207,11 +227,38 @@ class Precinct(Polygon):
 		xs,ys = self.exterior.xy
 		fig.plot(xs,ys,color,linewidth='3')
 
+class District(MultiPolygon):
 
-def shortestSplitLine(precincts,districts,poly=None,sample=1,showError=False):
+	def __init__(self,precincts):
+		self._polygon = None
+		self._precincts = tuple(precincts)
+		MultiPolygon.__init__(self,precincts)
+
+	def asPolygon(self):
+		if(self._polygon == None):
+			poly = self.buffer(0)
+			if(poly.type != 'Polygon'):
+				raise ValueError('district has invalid shape')
+			self._polygon = poly
+		return self._polygon
+
+	def precincts(self):
+		return self._precincts
+
+	def population():
+		return sum(p.population() for p in self._precincts)
+
+	def plot(self,fig=pyplot,color='b'):
+		poly = self.asPolygon()
+		xs, ys = poly.exterior.xy
+		fig.plot(xs,ys,color=color)
+
+def shortestSplitLine(precincts,districts,poly=None,sample=1):
 	print 'splitting', districts
 	if(districts == 1):
-		return ((precincts,poly),)
+		dist = District(precincts)
+		dist._polygon = poly
+		return (dist,)
 	if(poly == None):
 		poly = MultiPolygon(precincts).buffer(0)
 	lowAmt = int(districts/2.0)
@@ -240,8 +287,8 @@ def shortestSplitLine(precincts,districts,poly=None,sample=1,showError=False):
 		leftChild, rightChild = child1, child2
 	else:
 		rightChild, leftChild = child1, child2
-	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,showError)
-	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,showError)
+	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample)
+	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample)
 	return leftSplit + rightSplit
 
 
