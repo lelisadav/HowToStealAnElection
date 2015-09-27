@@ -5,6 +5,7 @@ from shapely.geometry import Polygon
 from shapely.geometry import MultiPolygon
 from shapely.geometry import LineString
 import math
+import time
 
 class State(MultiPolygon):
 
@@ -181,7 +182,9 @@ class State(MultiPolygon):
 
 class Precinct(Polygon):
 
-	def __init__(self,state,shapeRecord):
+	def __init__(self,state=None,shapeRecord=None):
+		if state is None: # necessary to pickle properly, idk why
+			return
 		self._record = shapeRecord.record
 		self.state = state
 		self._adjacent = None
@@ -208,17 +211,18 @@ class Precinct(Polygon):
 		fig.plot(xs,ys,color,linewidth='3')
 
 
-def shortestSplitLine(precincts,districts,poly=None,sample=1,showError=False):
-	print 'splitting', districts
+def shortestSplitLine(precincts,districts,poly=None,sample=1,showError=False,startTime=time.time()):
 	if(districts == 1):
 		return ((precincts,poly),)
 	if(poly == None):
+		print 'merging precincts to get outside border...','at', time.time()-startTime, 'seconds'
 		poly = MultiPolygon(precincts).buffer(0)
+	print 'splitting an area into', districts, 'districts...','at', time.time()-startTime, 'seconds'
 	lowAmt = int(districts/2.0)
 	ratio = lowAmt/float(districts)
 	smallest = None
 	for angle in (i*2*math.pi/sample for i in xrange(sample)):
-		print 'trying split line at angle', angle
+		# print 'trying split line at angle', angle
 		try:
 			spl = SplitLine(precincts,ratio,angle,poly)
 		except ValueError:
@@ -240,8 +244,8 @@ def shortestSplitLine(precincts,districts,poly=None,sample=1,showError=False):
 		leftChild, rightChild = child1, child2
 	else:
 		rightChild, leftChild = child1, child2
-	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,showError)
-	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,showError)
+	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,showError,startTime)
+	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,showError,startTime)
 	return leftSplit + rightSplit
 
 
