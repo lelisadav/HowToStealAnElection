@@ -17,9 +17,6 @@ class State(MultiPolygon):
 	def position(self):
 		return self.centroid.coords[0]
 
-	def points(self):
-		return self.boundary.coords
-
 	def iterPrecincts(self):
 		return iter(self._precincts)
 
@@ -197,7 +194,7 @@ class Precinct(Polygon):
 		return self.centroid.coords[0];
 
 	def points(self):
-		return self.boundary.coords
+		return self.exterior.coords
 
 	def adjacent(self):
 		if(self._adjacent != None):
@@ -205,6 +202,53 @@ class Precinct(Polygon):
 		points = set(self.points())
 		self._adjacent = tuple(p for p in self.state.iterPrecincts() if ((p.position() != self.position()) and len(points.intersection(p.points())) > 0))
 		return self._adjacent
+
+	def plot(self,fig=pyplot,color='blue'):
+		xs,ys = self.exterior.xy
+		fig.plot(xs,ys,color,linewidth='3')
+
+
+def shortestSplitLine(precincts,districts,poly=None,sample=1,showError=False):
+	print 'splitting', districts
+	if(districts == 1):
+		return ((precincts,poly),)
+	if(poly == None):
+		poly = MultiPolygon(precincts).buffer(0)
+	lowAmt = int(districts/2.0)
+	ratio = lowAmt/float(districts)
+	smallest = None
+	for angle in (i*2*math.pi/sample for i in xrange(sample)):
+		print 'trying split line at angle', angle
+		try:
+			spl = SplitLine(precincts,ratio,angle,poly)
+		except ValueError:
+			print 'value error for angle:',angle,'with ratio',ratio
+			"""if(showError):
+				plotPrecincts(precincts)
+				pyplot.show()"""
+			continue
+
+		if(smallest == None or spl.length < smallest.length):
+			try:
+				child1, child2 = tuple(poly.difference(spl.buffer(0.000000001)).geoms)
+				smallest = spl
+			except ValueError:
+				print 'too many partitions'
+				continue
+	leftChild, rightChild = None, None
+	if(child1.contains(smallest.leftPart[len(smallest.leftPart)/2].centroid)):
+		leftChild, rightChild = child1, child2
+	else:
+		rightChild, leftChild = child1, child2
+	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,showError)
+	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,showError)
+	return leftSplit + rightSplit
+
+
+def plotParts(parts,colors=None,fig=pyplot):
+	for (part,color) in zip(parts,colors):
+		for p in part:
+			p.plot(fig,color)
 
 def distance(p1,p2):
 	return math.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
@@ -255,15 +299,29 @@ class SplitLine(LineString):
 		if(polygon == None):
 			polygon = MultiPolygon(precincts).buffer(0)
 		minX, minY, maxX, maxY = polygon.bounds
-		length = math.sqrt((maxX - minX)**2 + (maxY - minY)**2)
+		length = 2*math.sqrt((maxX - minX)**2 + (maxY - minY)**2)
 		sin = math.sin(angle)*length
 		cos = math.cos(angle)*length
 		p1 = (point[0]+cos,point[1]+sin)
 		p2 = (point[0]-cos,point[1]-sin)
 		line = LineString((p1,p2))
-		intersections = polygon.boundary.intersection(line)
+		intersections = polygon.exterior.intersection(line)
 		points = tuple(point.coords[0] for point in intersections.geoms)
-		LineString.__init__(self,points)
+		try:
+			LineString.__init__(self,points)
+		except ValueError:
+			plotPrecincts(precincts,color='red')
+			xs,ys = polygon.exterior.xy
+			pyplot.plot(xs,ys)
+			xs,ys = line.xy
+			pyplot.plot(xs,ys,color='black')
+			pyplot.show()
+			raise ValueError
+
+	def plot(self,fig = pyplot, color='black'):
+		xs, ys = self.xy
+		fig.plot(xs,ys,color,linewidth='3')
+
 
 def plotPoints(points,color='b'):
 	for p in points:
@@ -271,13 +329,7 @@ def plotPoints(points,color='b'):
 
 def plotPrecincts(ps,color='b'):
 	for p in ps:
-		pos = p.position()
-		pyplot.scatter(pos[0],pos[1],c=color)
-
-def plotPrecinctsPoints(ps,color='b'):
-	for p in ps:
-		for point in p.points():
-			pyplot.scatter(point[0],point[1],c=color)
+		p.plot(color=color)
 
 if __name__ == "__main__":
 	import sys
