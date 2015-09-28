@@ -12,13 +12,13 @@ class State(MultiPolygon):
 	def __init__(self,path):
 		from shapefile import Reader
 		r = Reader(path)
-		self._precincts = tuple(Precinct(self,shapeRec) for shapeRec in r.iterShapeRecords())
+		self._precincts = tuple(Precinct(shapeRec) for shapeRec in r.iterShapeRecords())
 		self._polygon = None
 		MultiPolygon.__init__(self,self._precincts)
 
 	def asPolygon(self):
 		if(self._polygon == None):
-			poly = self.buffer(0)
+			poly = self.buffer(0.01)
 			if(poly.type != 'Polygon'):
 				raise ValueError('state has invalid shape')
 			self._polygon = poly
@@ -45,7 +45,7 @@ class State(MultiPolygon):
 		return shortestSplitLine(self.precincts(),districts,self.asPolygon(),sample)
 
 	def splitLine(self,ratio,angle):
-		return SplitLine(self._precincts,ratio,angle,self.buffer(0)) # we may want to store the polygon version of texas
+		return SplitLine(self._precincts,ratio,angle,self.buffer(0.01)) # we may want to store the polygon version of texas
 
 	# calculates every precinct's adjacent precincts, much faster than relying on
 	# each precinct to lazily evaluate their adjacent precincts when using
@@ -202,11 +202,10 @@ class State(MultiPolygon):
 
 class Precinct(Polygon):
 
-	def __init__(self,state=None,shapeRecord=None):
-		if state is None: # necessary to pickle properly, idk why
+	def __init__(self,shapeRecord=None):
+		if(shapeRecord == None):
 			return
 		self._record = shapeRecord.record
-		self.state = state
 		self._adjacent = None
 		Polygon.__init__(self,shapeRecord.shape.points + shapeRecord.shape.points[-1:])
 
@@ -230,16 +229,29 @@ class Precinct(Polygon):
 		xs,ys = self.exterior.xy
 		fig.plot(xs,ys,color,linewidth='3')
 
+def readSplitLine(shapeFile='data/Texas_VTD.shp',name='result.p'):
+	import cPickle
+	state = State(shapeFile)
+	cToP = dict(((precinct.centroid.x,precinct.centroid.y),precinct) for precinct in state.precincts())
+	result = cPickle.load(open(name,'rb'))
+	dists = []
+	for dTup in result:
+		precincts = tuple(cToP[(p.centroid.x,p.centroid.y)] for p in dTup[0])
+		d = District(precincts)
+		d._polygon = dTup[1]
+		dists.append(d)
+	return tuple(dists)
+
 class District(MultiPolygon):
 
 	def __init__(self,precincts):
 		self._polygon = None
 		self._precincts = tuple(precincts)
-		MultiPolygon.__init__(self,precincts)
+		MultiPolygon.__init__(self,self._precincts)
 
 	def asPolygon(self):
 		if(self._polygon == None):
-			poly = self.buffer(0)
+			poly = self.buffer(0.01)
 			if(poly.type != 'Polygon'):
 				raise ValueError('district has invalid shape')
 			self._polygon = poly
@@ -248,13 +260,19 @@ class District(MultiPolygon):
 	def precincts(self):
 		return self._precincts
 
-	def population():
+	def population(self):
 		return sum(p.population() for p in self._precincts)
 
 	def plot(self,fig=pyplot,color='b'):
 		poly = self.asPolygon()
 		xs, ys = poly.exterior.xy
 		fig.plot(xs,ys,color=color)
+
+	def isoperimetricRatio(self):
+		poly = self.asPolygon()
+		area = poly.area
+		perim = poly.exterior.length
+		return 4*math.pi*area/(perim**2)
 
 def shortestSplitLine(precincts,districts,poly=None,sample=1,startTime=time.time()):
 	if(districts == 1):
@@ -263,7 +281,7 @@ def shortestSplitLine(precincts,districts,poly=None,sample=1,startTime=time.time
 		return (dist,)
 	if(poly == None):
 		print 'merging precincts to get outside border...','at', time.time()-startTime, 'seconds'
-		poly = MultiPolygon(precincts).buffer(0)
+		poly = MultiPolygon(precincts).buffer(0.01)
 	print 'splitting an area into', districts, 'districts...','at', time.time()-startTime, 'seconds'
 	lowAmt = int(districts/2.0)
 	ratio = lowAmt/float(districts)
@@ -292,6 +310,89 @@ def shortestSplitLine(precincts,districts,poly=None,sample=1,startTime=time.time
 	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,startTime)
 	return leftSplit + rightSplit
 
+def landgrab(precincts,districts,startTime=time.time()):
+	if(districts == 1):
+		dist = District(precincts)
+		return (dist,)
+	print 'splitting an area into', districts, 'districts...','at', time.time()-startTime, 'seconds'
+	lowAmt = int(districts/2.0)
+	ratio = lowAmt/float(districts-lowAmt)
+
+	from random import sample
+
+	def findFarthest():
+		def findMax(p1):
+			return max((distance(p.position(),p1.position()),p) for p in precincts)[1]
+		p1 = sample(precincts,1)[0]
+		precinct1 = findMax(p1)
+		precinct2 = findMax(precinct1)
+		return precinct1,precinct2
+
+	def toTup(precinct,p1):
+		return (-distance(precinct.position(),p1.position()),p1)
+
+	def highestPopDiff():
+		hi = max((p.population(),p) for p in precincts)[1]
+		lo = min((p.population(),p) for p in precincts)[1]
+		return hi,lo
+
+	def highestDensityDiff():
+		hi = max((p.population()/p.area,p) for p in precincts)[1]
+		lo = min((p.population()/p.area,p) for p in precincts)[1]
+		return hi,lo
+
+
+	def byLineSort():
+		from random import random
+		angle = random()*2*math.pi
+		s = lineSortPrecincts(precincts)
+		return s[0],s[-1]
+	precinct1,precinct2 = findFarthest()
+
+	import heapq
+	these = set(precincts)
+	f1 = [toTup(precinct2,p) for p in precinct1.adjacent() if p in these]
+	f2 = [toTup(precinct1,p) for p in precinct2.adjacent() if p in these]
+	heapq.heapify(f1)
+	heapq.heapify(f2)
+	part1 = set([precinct1])
+	part2 = set([precinct2])
+	pop1 = precinct1.population()
+	pop2 = precinct2.population()
+	while len(f1) > 0 or len(f2) > 0:
+		print 'lengths:','p1:',len(part1),'p2:',len(part2)
+		while((len(f1) == 0 or pop2/float(pop1+1) < 1.0/ratio) and len(f2) > 0):
+			nextP = heapq.heappop(f2)[1]
+			if(nextP in part1 or nextP in part2):
+				continue
+			part2.add(nextP)
+			pop2 = pop2 + nextP.population()
+			new = [toTup(precinct1,p) for p in nextP.adjacent() if p in these and p not in part1 and p not in part2]
+			for p in new:
+				heapq.heappush(f2,p)
+		while((len(f2) == 0 or pop1/float(pop2+1) < ratio) and len(f1) > 0):
+			nextP = heapq.heappop(f1)[1]
+			if(nextP in part1 or nextP in part2):
+				continue
+			part1.add(nextP)
+			pop1 = pop1 + nextP.population()
+			new = [toTup(precinct2,p) for p in nextP.adjacent() if p in these and p not in part1 and p not in part2]
+			for p in new:
+				heapq.heappush(f1,p)
+
+	"""pop1 = sum(p.population() for p in part1)
+	pop2 = sum(p.population() for p in part2)"""
+	"""lowAmt = (min(pop1,pop2)*districts)/(pop1+pop2)"""
+	"""if(pop1 > pop2):
+		part1, part2 = part2, part1"""
+	dists = [District(part1),District(part2)]
+	print 'part 1 has pop:',dists[0].population(),'part 2 has pop:',dists[1].population()
+	import asher_script
+	asher_script.draw(dists)
+	leftSplit = landgrab(part1,lowAmt,startTime)
+	rightSplit = landgrab(part2,districts-lowAmt,startTime)
+	return leftSplit + rightSplit
+
 def plotParts(parts,colors=None,fig=pyplot):
 	for (part,color) in zip(parts,colors):
 		for p in part:
@@ -299,6 +400,17 @@ def plotParts(parts,colors=None,fig=pyplot):
 
 def distance(p1,p2):
 	return math.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
+
+# sorts precincts by position with respect to the specified angle
+def lineSortPrecincts(precincts,angle):
+	sin = math.sin(angle)
+	cos = math.cos(angle)
+	def dot(pos):
+		return cos*pos[0] + sin*pos[1]
+	def comp(x,y):
+		return cmp(dot(x.position()),dot(y.position()))
+	precincts = sorted(precincts,comp)
+	return precincts
 
 class SplitLine(LineString):
 
@@ -322,17 +434,6 @@ class SplitLine(LineString):
 				return cmp(dot(x),dot(y))
 			precincts.sort(comp)
 
-		# sorts precincts by position with respect to the specified angle
-		def lineSortPrecincts(precincts,angle):
-			sin = math.sin(angle)
-			cos = math.cos(angle)
-			def dot(pos):
-				return cos*pos[0] + sin*pos[1]
-			def comp(x,y):
-				return cmp(dot(x.position()),dot(y.position()))
-			precincts = sorted(precincts,comp)
-			return precincts
-
 		from bisect    import bisect
 		precincts = lineSortPrecincts(precincts,angle+math.pi/2)
 		pops = cumulativePop(precincts)           # get cumulative population for precincts, following the line
@@ -344,7 +445,7 @@ class SplitLine(LineString):
 		self.ratio = ratio
 		point = precincts[i].position()
 		if(polygon == None):
-			polygon = MultiPolygon(precincts).buffer(0)
+			polygon = MultiPolygon(precincts).buffer(0.01)
 		minX, minY, maxX, maxY = polygon.bounds
 		length = 2*math.sqrt((maxX - minX)**2 + (maxY - minY)**2)
 		sin = math.sin(angle)*length
