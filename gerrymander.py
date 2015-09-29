@@ -81,7 +81,7 @@ class State(MultiPolygon):
 					oPrecinct = precincts[j]
 					if(not intersects(precinct[0],oPrecinct[0])):
 						continue
-					if(precinct[1].isdisjoint(oPrecinct[1])):
+					if(len(precinct[1].intersection(oPrecinct[1])) < 2):
 						continue
 					oPrecinct[3].append(precinct[2])
 					precinct[3].append(oPrecinct[2])
@@ -93,7 +93,7 @@ class State(MultiPolygon):
 				for p2 in ps2:
 					if(not intersects(p1[0],p2[0])):
 						continue
-					if(p1[1].isdisjoint(p2[1])):
+					if(len(p1[1].intersection(p2[1])) < 2):
 						continue
 					p1[3].append(p2[2])
 					p2[3].append(p1[2])
@@ -108,7 +108,7 @@ class State(MultiPolygon):
 					hiP = ps[hi]
 					if(hiP[0][1] > loP[0][3]):
 						break
-					if(hiP[1].isdisjoint(loP[1])):
+					if(len(hiP[1].intersection(loP[1])) < 2):
 						continue
 					loP[3].append(hiP[2])
 					hiP[3].append(loP[2])
@@ -123,7 +123,7 @@ class State(MultiPolygon):
 					rightP = ps[right]
 					if(rightP[0][0] > leftP[0][2]):
 						break
-					if(leftP[1].isdisjoint(rightP[1])):
+					if(len(leftP[1].intersection(rightP[1])) < 2):
 						continue
 					leftP[3].append(rightP[2])
 					rightP[3].append(leftP[2])
@@ -229,25 +229,25 @@ class Precinct(Polygon):
 		xs,ys = self.exterior.xy
 		fig.plot(xs,ys,color,linewidth='3')
 
-def readSplitLine(shapeFile='data/Texas_VTD.shp',name='result.p'):
+def readFile(shapeFile='data/Texas_VTD.shp',name='result.p'):
 	import cPickle
 	state = State(shapeFile)
 	cToP = dict(((precinct.centroid.x,precinct.centroid.y),precinct) for precinct in state.precincts())
 	result = cPickle.load(open(name,'rb'))
 	dists = []
 	for dTup in result:
-		precincts = tuple(cToP[(p.centroid.x,p.centroid.y)] for p in dTup[0])
+		precincts = tuple(cToP[(p.centroid.x,p.centroid.y)] for p in dTup)
 		d = District(precincts)
-		d._polygon = dTup[1]
 		dists.append(d)
 	return tuple(dists)
 
 class District(MultiPolygon):
 
-	def __init__(self,precincts):
+	def __init__(self,precincts = None):
 		self._polygon = None
-		self._precincts = tuple(precincts)
-		MultiPolygon.__init__(self,self._precincts)
+		if(precincts != None):
+			self._precincts = tuple(precincts)
+			MultiPolygon.__init__(self,self._precincts)
 
 	def asPolygon(self):
 		if(self._polygon == None):
@@ -273,6 +273,46 @@ class District(MultiPolygon):
 		area = poly.area
 		perim = poly.exterior.length
 		return 4*math.pi*area/(perim**2)
+
+def shortestSplitLineJagged(precincts,districts,poly=None,sample=1,startTime=time.time()):
+	if(districts == 1):
+		dist = District(precincts)
+		dist._polygon = poly
+		return (dist,)
+	if(poly == None):
+		print 'merging precincts to get outside border...','at', time.time()-startTime, 'seconds'
+		poly = MultiPolygon(precincts).buffer(0.01)
+	print 'splitting an area into', districts, 'districts...','at', time.time()-startTime, 'seconds'
+	lowAmt = int(districts/2.0)
+	ratio = lowAmt/float(districts)
+	smallest = None
+	for angle in (i*2*math.pi/sample for i in xrange(sample)):
+		# print 'trying split line at angle', angle
+		try:
+			spl = SplitLine(precincts,ratio,angle,poly)
+		except ValueError:
+			print 'value error for angle:',angle,'with ratio',ratio
+			continue
+
+		if(smallest == None or spl.length < smallest.length):
+			c1 = MultiPolygon(spl.leftPart).buffer(0.01)
+			c2 = MultiPolygon(spl.rightPart).buffer(0.01)
+			if(c1.type == 'Polygon' and c2.type == 'Polygon'):
+				child1 = c1
+				child2 = c2
+				smallest = spl
+			else:
+				print 'too many partitions'
+				continue
+	leftChild, rightChild = None, None
+	if(child1.contains(smallest.leftPart[len(smallest.leftPart)/2].centroid)):
+		leftChild, rightChild = child1, child2
+	else:
+		rightChild, leftChild = child1, child2
+	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,startTime)
+	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,startTime)
+	return leftSplit + rightSplit
+
 
 def shortestSplitLine(precincts,districts,poly=None,sample=1,startTime=time.time()):
 	if(districts == 1):
