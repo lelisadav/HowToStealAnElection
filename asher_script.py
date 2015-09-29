@@ -70,7 +70,21 @@ def draw(result):
 	ax.set_yticks([])
 	pyplot.title(shapefile + ' shortest splitline')
 	pyplot.tight_layout()
-	pyplot.show()
+	#pyplot.show()
+
+def drawTheThing(lower, upper, string):
+	import gerrymander
+	for i in range(lower, upper):
+		result = gerrymander.readFile(name='data/landgrab_' + string + '_result' + str(i) + '.p')
+		draw(result)
+	#pyplot.show()
+
+def doTheThing(lower, upper, string, precincts):
+	import gerrymander
+	for i in range(lower, upper):
+		output = open('data/landgrab_' + string + '_result' + str(i) + '.p', 'wb')
+		result = gerrymander.landgrab(precincts, 36)
+
 
 def __main__():
 	result = loadOrCalculate()
