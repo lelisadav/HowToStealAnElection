@@ -6,6 +6,8 @@ from shapely.geometry import MultiPolygon
 from shapely.geometry import LineString
 import math
 import time
+import heapq
+from random import random, sample
 
 class State(MultiPolygon):
 
@@ -358,8 +360,6 @@ def landgrab(precincts,districts,startTime=time.time()):
 	lowAmt = int(districts/2.0)
 	ratio = lowAmt/float(districts-lowAmt)
 
-	from random import sample
-
 	def findFarthest():
 		def findMax(p1):
 			return max((distance(p.position(),p1.position()),p) for p in precincts)[1]
@@ -383,13 +383,13 @@ def landgrab(precincts,districts,startTime=time.time()):
 
 
 	def byLineSort():
-		from random import random
+		
 		angle = random()*2*math.pi
-		s = lineSortPrecincts(precincts)
+		s = lineSortPrecincts(precincts, angle)
 		return s[0],s[-1]
 	precinct1,precinct2 = findFarthest()
 
-	import heapq
+	
 	these = set(precincts)
 	f1 = [toTup(precinct2,p) for p in precinct1.adjacent() if p in these]
 	f2 = [toTup(precinct1,p) for p in precinct2.adjacent() if p in these]
@@ -400,7 +400,7 @@ def landgrab(precincts,districts,startTime=time.time()):
 	pop1 = precinct1.population()
 	pop2 = precinct2.population()
 	while len(f1) > 0 or len(f2) > 0:
-		print 'lengths:','p1:',len(part1),'p2:',len(part2)
+		#print 'lengths:','p1:',len(part1),'p2:',len(part2)
 		while((len(f1) == 0 or pop2/float(pop1+1) < 1.0/ratio) and len(f2) > 0):
 			nextP = heapq.heappop(f2)[1]
 			if(nextP in part1 or nextP in part2):
@@ -426,9 +426,9 @@ def landgrab(precincts,districts,startTime=time.time()):
 	"""if(pop1 > pop2):
 		part1, part2 = part2, part1"""
 	dists = [District(part1),District(part2)]
-	print 'part 1 has pop:',dists[0].population(),'part 2 has pop:',dists[1].population()
-	import asher_script
-	asher_script.draw(dists)
+	#print 'part 1 has pop:',dists[0].population(),'part 2 has pop:',dists[1].population()
+	#import asher_script
+	#asher_script.draw(dists)
 	leftSplit = landgrab(part1,lowAmt,startTime)
 	rightSplit = landgrab(part2,districts-lowAmt,startTime)
 	return leftSplit + rightSplit
