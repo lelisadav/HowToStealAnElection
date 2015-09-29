@@ -20,7 +20,7 @@ class State(MultiPolygon):
 
 	def asPolygon(self):
 		if(self._polygon == None):
-			poly = self.buffer(0.01)
+			poly = self.buffer(0)
 			if(poly.type != 'Polygon'):
 				raise ValueError('state has invalid shape')
 			self._polygon = poly
@@ -47,7 +47,7 @@ class State(MultiPolygon):
 		return shortestSplitLine(self.precincts(),districts,self.asPolygon(),sample)
 
 	def splitLine(self,ratio,angle):
-		return SplitLine(self._precincts,ratio,angle,self.buffer(0.01)) # we may want to store the polygon version of texas
+		return SplitLine(self._precincts,ratio,angle,self.buffer(0)) # we may want to store the polygon version of texas
 
 	# calculates every precinct's adjacent precincts, much faster than relying on
 	# each precinct to lazily evaluate their adjacent precincts when using
@@ -253,7 +253,7 @@ class District(MultiPolygon):
 
 	def asPolygon(self):
 		if(self._polygon == None):
-			poly = self.buffer(0.01)
+			poly = self.buffer(0)
 			if(poly.type != 'Polygon'):
 				raise ValueError('district has invalid shape')
 			self._polygon = poly
@@ -283,7 +283,7 @@ def shortestSplitLineJagged(precincts,districts,poly=None,sample=1,startTime=tim
 		return (dist,)
 	if(poly == None):
 		print 'merging precincts to get outside border...','at', time.time()-startTime, 'seconds'
-		poly = MultiPolygon(precincts).buffer(0.01)
+		poly = MultiPolygon(precincts).buffer(0)
 	print 'splitting an area into', districts, 'districts...','at', time.time()-startTime, 'seconds'
 	lowAmt = int(districts/2.0)
 	ratio = lowAmt/float(districts)
@@ -297,8 +297,8 @@ def shortestSplitLineJagged(precincts,districts,poly=None,sample=1,startTime=tim
 			continue
 
 		if(smallest == None or spl.length < smallest.length):
-			c1 = MultiPolygon(spl.leftPart).buffer(0.01)
-			c2 = MultiPolygon(spl.rightPart).buffer(0.01)
+			c1 = MultiPolygon(spl.leftPart).buffer(0)
+			c2 = MultiPolygon(spl.rightPart).buffer(0)
 			if(c1.type == 'Polygon' and c2.type == 'Polygon'):
 				child1 = c1
 				child2 = c2
@@ -311,24 +311,24 @@ def shortestSplitLineJagged(precincts,districts,poly=None,sample=1,startTime=tim
 		leftChild, rightChild = child1, child2
 	else:
 		rightChild, leftChild = child1, child2
-	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,startTime)
-	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,startTime)
+	leftSplit = shortestSplitLineJagged(smallest.leftPart,lowAmt,leftChild,sample,startTime)
+	rightSplit = shortestSplitLineJagged(smallest.rightPart,districts-lowAmt,rightChild,sample,startTime)
 	return leftSplit + rightSplit
 
 
-def shortestSplitLine(precincts,districts,poly=None,sample=1,startTime=time.time()):
+def shortestSplitLine(precincts,districts,poly=None,sample=1,angleStart=0,startTime=time.time()):
 	if(districts == 1):
 		dist = District(precincts)
 		dist._polygon = poly
 		return (dist,)
 	if(poly == None):
 		print 'merging precincts to get outside border...','at', time.time()-startTime, 'seconds'
-		poly = MultiPolygon(precincts).buffer(0.01)
+		poly = MultiPolygon(precincts).buffer(0)
 	print 'splitting an area into', districts, 'districts...','at', time.time()-startTime, 'seconds'
 	lowAmt = int(districts/2.0)
 	ratio = lowAmt/float(districts)
 	smallest = None
-	for angle in (i*2*math.pi/sample for i in xrange(sample)):
+	for angle in (i*2*math.pi/sample + angleStart for i in xrange(sample)):
 		# print 'trying split line at angle', angle
 		try:
 			spl = SplitLine(precincts,ratio,angle,poly)
@@ -348,8 +348,8 @@ def shortestSplitLine(precincts,districts,poly=None,sample=1,startTime=time.time
 		leftChild, rightChild = child1, child2
 	else:
 		rightChild, leftChild = child1, child2
-	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,startTime)
-	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,startTime)
+	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,angleStart,startTime)
+	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,angleStart,startTime)
 	return leftSplit + rightSplit
 
 def landgrab(precincts,districts,startTime=time.time()):
@@ -425,7 +425,8 @@ def landgrab(precincts,districts,startTime=time.time()):
 	"""lowAmt = (min(pop1,pop2)*districts)/(pop1+pop2)"""
 	"""if(pop1 > pop2):
 		part1, part2 = part2, part1"""
-	dists = [District(part1),District(part2)]
+
+	#dists = [District(part1),District(part2)]
 	#print 'part 1 has pop:',dists[0].population(),'part 2 has pop:',dists[1].population()
 	#import asher_script
 	#asher_script.draw(dists)
@@ -485,7 +486,7 @@ class SplitLine(LineString):
 		self.ratio = ratio
 		point = precincts[i].position()
 		if(polygon == None):
-			polygon = MultiPolygon(precincts).buffer(0.01)
+			polygon = MultiPolygon(precincts).buffer(0)
 		minX, minY, maxX, maxY = polygon.bounds
 		length = 2*math.sqrt((maxX - minX)**2 + (maxY - minY)**2)
 		sin = math.sin(angle)*length
