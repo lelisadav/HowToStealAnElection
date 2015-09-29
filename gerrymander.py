@@ -314,7 +314,7 @@ def shortestSplitLineJagged(precincts,districts,poly=None,sample=1,startTime=tim
 	return leftSplit + rightSplit
 
 
-def shortestSplitLine(precincts,districts,poly=None,sample=1,startTime=time.time()):
+def shortestSplitLine(precincts,districts,poly=None,sample=1,angleStart=0,startTime=time.time()):
 	if(districts == 1):
 		dist = District(precincts)
 		dist._polygon = poly
@@ -326,7 +326,7 @@ def shortestSplitLine(precincts,districts,poly=None,sample=1,startTime=time.time
 	lowAmt = int(districts/2.0)
 	ratio = lowAmt/float(districts)
 	smallest = None
-	for angle in (i*2*math.pi/sample for i in xrange(sample)):
+	for angle in (i*2*math.pi/sample + angleStart for i in xrange(sample)):
 		# print 'trying split line at angle', angle
 		try:
 			spl = SplitLine(precincts,ratio,angle,poly)
@@ -346,8 +346,8 @@ def shortestSplitLine(precincts,districts,poly=None,sample=1,startTime=time.time
 		leftChild, rightChild = child1, child2
 	else:
 		rightChild, leftChild = child1, child2
-	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,startTime)
-	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,startTime)
+	leftSplit = shortestSplitLine(smallest.leftPart,lowAmt,leftChild,sample,angleStart,startTime)
+	rightSplit = shortestSplitLine(smallest.rightPart,districts-lowAmt,rightChild,sample,angleStart,startTime)
 	return leftSplit + rightSplit
 
 def landgrab(precincts,districts,startTime=time.time()):
@@ -400,7 +400,7 @@ def landgrab(precincts,districts,startTime=time.time()):
 	pop1 = precinct1.population()
 	pop2 = precinct2.population()
 	while len(f1) > 0 or len(f2) > 0:
-		print 'lengths:','p1:',len(part1),'p2:',len(part2)
+		#print 'lengths:','p1:',len(part1),'p2:',len(part2)
 		while((len(f1) == 0 or pop2/float(pop1+1) < 1.0/ratio) and len(f2) > 0):
 			nextP = heapq.heappop(f2)[1]
 			if(nextP in part1 or nextP in part2):
@@ -425,10 +425,10 @@ def landgrab(precincts,districts,startTime=time.time()):
 	"""lowAmt = (min(pop1,pop2)*districts)/(pop1+pop2)"""
 	"""if(pop1 > pop2):
 		part1, part2 = part2, part1"""
-	dists = [District(part1),District(part2)]
-	print 'part 1 has pop:',dists[0].population(),'part 2 has pop:',dists[1].population()
-	import asher_script
-	asher_script.draw(dists)
+	#dists = [District(part1),District(part2)]
+	#print 'part 1 has pop:',dists[0].population(),'part 2 has pop:',dists[1].population()
+	#import asher_script
+	#asher_script.draw(dists)
 	leftSplit = landgrab(part1,lowAmt,startTime)
 	rightSplit = landgrab(part2,districts-lowAmt,startTime)
 	return leftSplit + rightSplit
