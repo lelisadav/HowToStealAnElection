@@ -18,6 +18,7 @@ import Astar
 import dataObject
 import populationDict
 from descartes import PolygonPatch
+import gerrymander as gerry
 from matplotlib.collections import PatchCollection
 #def mainIso(save=False):
 #
@@ -93,7 +94,32 @@ from matplotlib.collections import PatchCollection
 #        plt.savefig('data/texas_from_shp.png', alpha=True, dpi=300)
 #    plt.show()
 #  
-#    
+#
+#def readSplitLine(shapeFile='data/Texas_VTD.shp',name='result.p'):
+#    from shapefile import Reader
+#    r = Reader(shapeFile)
+#    for item in r.iterShapeRecords():
+#        print(item.record[1])
+#        break
+# 
+def isoperiHeur(searchState):
+    count=len(searchState.districts)
+    if (count==0):
+        return 0
+    ratio=0
+    pop=0
+    pops=[]
+    for d in searchState.districts:
+        ratio+=isoperi(d.polygon)
+        pop+=d.population
+        pops.append(d.population)
+    quo= ratio/count
+    popquo=pop/count
+    popDiff=0
+    for p in pops:
+        popDiff=abs(p-popquo)
+    return quo+popDiff
+    
 def isoperi(polygon):
     area=polygon.area
     perim=polygon.length
@@ -184,23 +210,24 @@ def createPopulationDictBlock():
             tDict[county+tract]=True
     pDict.writeMaxMin()
     pDict.writeToFile('data/populationsBlock.json')
+def createPopulationDictCounty():
+    f453='county_shape.json'
+    data=fiona.open('data/'+f453)
+    pDict=populationDict.PopulationDictCounty()
+    pDict.fillPopulation('48')
+    pDict.writeMaxMin()
+    pDict.writeToFile('data/populationsCounty.json')
         
-def mainIsoTest(save=False, tract=True):
+def mainIsoTest(save=False):
 #    f209='tl_2010_48209_tabblock00.shp'
-    if (tract):
-        f453='tract453_shape.json'
-    else:
-        f453='block453_shape.json'
+     f453='Texas_VTD.shp'
     #fpop='tabblock2010_48_pophu.shp'
     
 #    f491='block453_shape.json'
 #    f209='block209_shape.json'
 #    f453='block453_shape.json'
 #    f491='block491_shape.json'
-    if (tract):
-        f='tracts'
-    else:
-        f='blocks'
+     f='precincts'
 #    data= fiona.open('data/texas.json')
 #    i=0
 #    for pol in data:
@@ -214,21 +241,40 @@ def mainIsoTest(save=False, tract=True):
 #    mp453=shapely.geometry.MultiPolygon([shapely.geometry.shape(pol['geometry']) for pol in fiona.open('data/'+f453)])
 ##    print(data.schema)
 #    mp209=shapely.geometry.MultiPolygon([shapely.geometry.shape(pol['geometry']) for pol in fiona.open('data/'+f209)])
-    data=fiona.open('data/'+f453)
-    objects=[]
-    polygons=[]
+#     data=gerry.State('data/'+f453, [453, 491, 209])
+     number=3
+     data=gerry.State('data/'+f453)
+     data.buildGraph()
+     precincts = data.precincts()
+     import landgrab
+     import time
+     fileName='data/results/texasVTD'+time.ctime()
+     title='Texas voting districts'
+     dists=landgrab.landgrab(precincts, 8,time.time())
+     landgrab.drawAsher(dists, fileName, title)
+##     dists2a=landgrab.landgrab(dists[0].precincts(), 2, time.time())
+##     landgrab.drawAsher(dists2a, fileName+'2a', title)
+#     dists2b=landgrab.landgrab(dists[1].precincts(), 2, time.time())
+#     landgrab.drawAsher(dists2b, fileName+'2b', title)
+#     dists2ba=landgrab.landgrab(dists2b[0].precincts(), 2, time.time())
+#     landgrab.drawAsher(dists2ba, fileName+'2ba', title)
+#     dists2bb=landgrab.landgrab(dists2b[1].precincts(), 2, time.time())
+#     landgrab.drawAsher(dists2bb, fileName+'2bb', title)
+     
     
-    if (tract):
-        pDict=populationDict.PopulationDictTract()
-        pDict.readFromFile('data/populationsTract.json')
-    else:
-        pDict=populationDict.PopulationDictBlock()
-        pDict.readFromFile('data/populationsBlock.json')
-        
-    for pol in data:
-        obj=dataObject.DataObject(pol, pDict)
-        objects.append(obj)
-        polygons.append(obj.polygon)
+#     landgrab.drawAsher(ls, fileName, title)
+#     landgrab.drawLE(ls, fileName, title)
+#     i+=1
+
+#     objects=[]
+##     polygons=[]
+#    
+#    
+#    
+#     for pol in data.precincts():
+#         
+#         objects.append(pol)
+#         polygons.append(obj.polygon)
 #    minP=pDict.getMin()
 #    maxP=pDict.getMax()
 #    print(minP)
@@ -298,7 +344,7 @@ def mainIsoTest(save=False, tract=True):
 #        plt.savefig('data/results/texas_'+f+'.png', alpha=True, dpi=300)
 #    plt.show()
 #    ds=districtingState(polygons)
-    Astar.search(objects)
+#     showSearchResults(Astar.search(objects, number,heuristic=isoperiHeur))
 
 def testing():
     p1=dataObject.DummyDataObject(shapely.geometry.Polygon([(0,0), (0,1), (.5,.5)]))
@@ -308,10 +354,9 @@ def testing():
     p3=dataObject.DummyDataObject(shapely.geometry.Polygon([(0,0), (.5, .5), (1,0)]))
     p3a=dataObject.DummyDataObject(shapely.geometry.Polygon([(0,0),  (.5, -.5), (1, 0)]))
     
-    showSearchResults(Astar.search([p1, p1a, p2, p2a, p3, p3a]))
+    showSearchResults(Astar.search([p1, p1a, p2, p2a, p3, p3a], 2, heuristic=isoperiHeur))
     
         
-    
 
 def showSearchResults(searchState, save=True):
     polygons=[]
@@ -359,12 +404,13 @@ def showSearchResults(searchState, save=True):
         
 
 #print(getPopulation('1213','02', '290', '00100'))
-#createPopulationDictTract()
+#createPopulationDictCounty()
 #print('Done')
 #mainIsoTest(save=True, tract=True)
 #createPopulationDictBlock()
 #print('Done')
-testing()
-#mainIsoTest(save=True, tract=True)
+#testing()
+#readSplitLine()
+mainIsoTest(save=True)
 #mainIso()
 #mainDistricts()
